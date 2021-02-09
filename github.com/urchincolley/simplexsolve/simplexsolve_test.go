@@ -9,84 +9,48 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
-type TestProblem struct {
-	Constraints    []Constraint
-	Objective      Objective
-	ExpTableau     *Tableau
-	ExpTableauErr  error
-	ExpSolved      *Tableau
-	ExpSolveErr    error
-	ExpSoln        []float64
-	ExpReadSolnErr error
-	ExpObjVal      float64
-}
-
-var cases = map[string]TestProblem{
-	"basic lp": {
-		Constraints: []Constraint{
-			Constraint{
-				Coefficients:  []float64{2.0, 1.0},
-				RightHandSide: 18.0,
-			},
-			Constraint{
-				Coefficients:  []float64{6.0, 5.0},
-				RightHandSide: 60.0,
-			},
-			Constraint{
-				Coefficients:  []float64{2.0, 5.0},
-				RightHandSide: 40.0,
-			}},
-		Objective: []float64{-2.0, -3.0},
-		ExpTableau: &Tableau{mat.NewDense(4, 6, []float64{
-			2, 1, 1, 0, 0, 18,
-			6, 5, 0, 1, 0, 60,
-			2, 5, 0, 0, 1, 40,
-			-2, -3, 0, 0, 0, 0})},
-		ExpSolved: &Tableau{mat.NewDense(4, 6, []float64{
-			0, 0, 1, -0.4, 0.2, 2,
-			1, 0, 0, 0.25, -0.25, 5,
-			0, 1, 0, -0.1, 0.3, 6,
-			0, 0, 0, 0.2, 0.4, 28})},
-		ExpSoln:   []float64{5.0, 6.0},
-		ExpObjVal: 28.0,
-	},
-	"unequal constraints": {
-		Constraints: []Constraint{
-			Constraint{
-				Coefficients:  []float64{2.0},
-				RightHandSide: 18.0,
-			}},
-		ExpTableauErr: errors.New("coefficient vectors must be of equal length"),
-	},
-	"unbounded": {
-		Constraints: []Constraint{
-			Constraint{
-				Coefficients:  []float64{4, -2, 2},
-				RightHandSide: 4,
-			},
-			Constraint{
-				Coefficients:  []float64{2, -1, 1},
-				RightHandSide: 1,
-			},
-		},
-		Objective: []float64{-3, -2, 5},
-		ExpTableau: &Tableau{mat.NewDense(3, 6, []float64{
-			4, -2, 2, 1, 0, 4,
-			2, -1, 1, 0, 1, 1,
-			-3, -2, 5, 0, 0, 0})},
-		ExpSolved: &Tableau{mat.NewDense(3, 6, []float64{
-			0, 0, 0, 1, -2, 2,
-			1, -0.5, 0.5, 0, 0.5, 0.5,
-			0, -3.5, 6.5, 0, 1.5, 1.5})},
-		ExpSolveErr:    ERR_UNBOUNDED,
-		ExpReadSolnErr: ERR_UNBOUNDED,
-	}}
-
 func roundFloat(x float64) float64 {
 	return math.Round(x*100) / 100
 }
 
 func TestNewTableau(t *testing.T) {
+	cases := map[string]struct {
+		Constraints   []Constraint
+		Objective     Objective
+		ExpTableau    *Tableau
+		ExpTableauErr error
+	}{
+		"basic lp": {
+			Constraints: []Constraint{
+				Constraint{
+					Coefficients:  []float64{2.0, 1.0},
+					RightHandSide: 18.0,
+				},
+				Constraint{
+					Coefficients:  []float64{6.0, 5.0},
+					RightHandSide: 60.0,
+				},
+				Constraint{
+					Coefficients:  []float64{2.0, 5.0},
+					RightHandSide: 40.0,
+				}},
+			Objective: []float64{-2.0, -3.0},
+			ExpTableau: &Tableau{mat.NewDense(4, 6, []float64{
+				2, 1, 1, 0, 0, 18,
+				6, 5, 0, 1, 0, 60,
+				2, 5, 0, 0, 1, 40,
+				-2, -3, 0, 0, 0, 0})},
+		},
+		"unequal constraints": {
+			Constraints: []Constraint{
+				Constraint{
+					Coefficients:  []float64{2.0},
+					RightHandSide: 18.0,
+				}},
+			ExpTableauErr: errors.New("coefficient vectors must be of equal length"),
+		},
+	}
+
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			tableau, err := NewTableau(tc.Constraints, tc.Objective)
@@ -104,12 +68,39 @@ func TestNewTableau(t *testing.T) {
 }
 
 func TestSolve(t *testing.T) {
+	cases := map[string]struct {
+		UnsolvedTableau *Tableau
+		ExpSolved       *Tableau
+		ExpSolveErr     error
+	}{
+		"basic lp": {
+			UnsolvedTableau: &Tableau{mat.NewDense(4, 6, []float64{
+				2, 1, 1, 0, 0, 18,
+				6, 5, 0, 1, 0, 60,
+				2, 5, 0, 0, 1, 40,
+				-2, -3, 0, 0, 0, 0})},
+			ExpSolved: &Tableau{mat.NewDense(4, 6, []float64{
+				0, 0, 1, -0.4, 0.2, 2,
+				1, 0, 0, 0.25, -0.25, 5,
+				0, 1, 0, -0.1, 0.3, 6,
+				0, 0, 0, 0.2, 0.4, 28})},
+		},
+		"unbounded": {
+			UnsolvedTableau: &Tableau{mat.NewDense(3, 6, []float64{
+				4, -2, 2, 1, 0, 4,
+				2, -1, 1, 0, 1, 1,
+				-3, -2, 5, 0, 0, 0})},
+			ExpSolved: &Tableau{mat.NewDense(3, 6, []float64{
+				0, 0, 0, 1, -2, 2,
+				1, -0.5, 0.5, 0, 0.5, 0.5,
+				0, -3.5, 6.5, 0, 1.5, 1.5})},
+			ExpSolveErr: ERR_UNBOUNDED,
+		},
+	}
+
 	for name, tc := range cases {
-		if tc.ExpTableau == nil {
-			continue
-		}
 		t.Run(name, func(t *testing.T) {
-			sut := tc.ExpTableau
+			sut := tc.UnsolvedTableau
 			err := sut.Solve()
 			if !reflect.DeepEqual(err, tc.ExpSolveErr) {
 				t.Errorf("Solve() error = %v; want %v", err, tc.ExpSolveErr)
@@ -139,27 +130,59 @@ func TestSolve(t *testing.T) {
 }
 
 func TestReadSoln(t *testing.T) {
+	cases := map[string]struct {
+		UnsolvedTableau *Tableau
+		SolvedTableau   *Tableau
+		ExpSoln         []float64
+		ExpObjVal       float64
+		ExpReadSolnErr  error
+	}{
+
+		"basic lp": {
+			UnsolvedTableau: &Tableau{mat.NewDense(4, 6, []float64{
+				2, 1, 1, 0, 0, 18,
+				6, 5, 0, 1, 0, 60,
+				2, 5, 0, 0, 1, 40,
+				-2, -3, 0, 0, 0, 0})},
+			SolvedTableau: &Tableau{mat.NewDense(4, 6, []float64{
+				0, 0, 1, -0.4, 0.2, 2,
+				1, 0, 0, 0.25, -0.25, 5,
+				0, 1, 0, -0.1, 0.3, 6,
+				0, 0, 0, 0.2, 0.4, 28})},
+			ExpSoln:   []float64{5.0, 6.0},
+			ExpObjVal: 28.0,
+		},
+		"unbounded": {
+			UnsolvedTableau: &Tableau{mat.NewDense(3, 6, []float64{
+				4, -2, 2, 1, 0, 4,
+				2, -1, 1, 0, 1, 1,
+				-3, -2, 5, 0, 0, 0})},
+			SolvedTableau: &Tableau{mat.NewDense(3, 6, []float64{
+				0, 0, 0, 1, -2, 2,
+				1, -0.5, 0.5, 0, 0.5, 0.5,
+				0, -3.5, 6.5, 0, 1.5, 1.5})},
+			ExpReadSolnErr: ERR_UNBOUNDED,
+		},
+	}
+
 	for name, tc := range cases {
-		if tc.ExpSolved == nil {
-			continue
-		}
 		t.Run(name, func(t *testing.T) {
-			sut1 := tc.ExpTableau
+			sut1 := tc.UnsolvedTableau
 			_, _, err := sut1.ReadSoln()
 			if !reflect.DeepEqual(err, ERR_UNSOLVED) {
 				t.Errorf("ReadSoln() for unsolved tableau = %v; want %v", err, ERR_UNSOLVED)
 			}
 
-			sut2 := tc.ExpSolved
+			sut2 := tc.SolvedTableau
 			soln, val, err := sut2.ReadSoln()
 			if !reflect.DeepEqual(err, tc.ExpReadSolnErr) {
-				t.Errorf("ReadSoln() for unsolved tableau = %v; want %v", err, tc.ExpReadSolnErr)
+				t.Errorf("ReadSoln() for solved tableau = %v; want %v", err, tc.ExpReadSolnErr)
 			}
 			if !reflect.DeepEqual(soln, tc.ExpSoln) {
 				t.Errorf("Solution read = %v; want %v", soln, tc.ExpSoln)
 			}
 			if val != tc.ExpObjVal {
-				t.Errorf("Objective value read = %v; want %v", val, tc.Objective)
+				t.Errorf("Objective value read = %v; want %v", val, tc.ExpObjVal)
 			}
 		})
 	}

@@ -68,12 +68,14 @@ func (t *Tableau) Solve() error {
 // from a Tableau. Returns an error if the LP represented by the Tableau t
 // is unsolved or unbounded.
 func (t *Tableau) ReadSoln() ([]float64, float64, error) {
-	if !t.isSolved() {
-		return nil, 0, ERR_UNSOLVED
-	}
 	if t.isUnbounded() {
 		return nil, 0, ERR_UNBOUNDED
 	}
+	if !t.isSolved() {
+
+		return nil, 0, ERR_UNSOLVED
+	}
+
 	nrs, ncs := t.Dims()
 	nvs := ncs - nrs
 	vals := make([]float64, nvs)
@@ -89,21 +91,16 @@ func (t *Tableau) ReadSoln() ([]float64, float64, error) {
 	return vals, t.At(nrs-1, ncs-1), nil
 }
 
-// Checks objective row for negative values. If there are none, LP is solved.
+// Checks if an entering variable can be found. If not, LP is solved.
 func (t *Tableau) isSolved() bool {
-	nrs, _ := t.Dims()
-	for _, v := range t.RawRowView(nrs - 1) {
-		if v < 0 {
-			return false
-		}
-	}
-	return true
+	_, pc := t.pivotIdxs()
+	return pc < 0
 }
 
-// Checks if an exiting variable can be found. If not, LP is unbounded.
+// Checks if an entering variable, but no exiting variable can be found.
 func (t *Tableau) isUnbounded() bool {
-	pr, _ := t.pivotIdxs()
-	return pr < 0
+	pr, pc := t.pivotIdxs()
+	return pc >= 0 && pr < 0
 }
 
 // Finds the pivot element, then solves (1 iteration of simplex method)
@@ -138,12 +135,15 @@ func (t *Tableau) elimRows(pr int, pc int) {
 // Gets indices of the pivot row and pivot column
 func (t *Tableau) pivotIdxs() (pr int, pc int) {
 	nrs, ncs := t.Dims()
+	pr = -1
 
 	// find pivot column index
 	pc = negMinIdx(t.RowView(nrs - 1))
+	if pc < 0 { // No entering variable found
+		return
+	}
 
 	// find pivot row index (min quotient with rightmost col)
-	pr = -1
 	minq := math.MaxFloat64
 	for r := 0; r < nrs-1; r++ {
 		pce := t.At(r, pc)
