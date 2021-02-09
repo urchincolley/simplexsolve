@@ -1,4 +1,4 @@
-package main
+package simplexsolve
 
 import (
 	"errors"
@@ -10,13 +10,15 @@ import (
 )
 
 type TestProblem struct {
-	Constraints   []Constraint
-	Objective     Objective
-	ExpTableau    *Tableau
-	ExpTableauErr error
-	ExpSolved     *Tableau
-	ExpSoln       []float64
-	ExpObjVal     float64
+	Constraints    []Constraint
+	Objective      Objective
+	ExpTableau     *Tableau
+	ExpTableauErr  error
+	ExpSolved      *Tableau
+	ExpSolveErr    error
+	ExpSoln        []float64
+	ExpReadSolnErr error
+	ExpObjVal      float64
 }
 
 var cases = map[string]TestProblem{
@@ -34,11 +36,19 @@ var cases = map[string]TestProblem{
 				Coefficients:  []float64{2.0, 5.0},
 				RightHandSide: 40.0,
 			}},
-		Objective:  []float64{-2.0, -3.0},
-		ExpTableau: &Tableau{mat.NewDense(4, 6, []float64{2, 1, 1, 0, 0, 18, 6, 5, 0, 1, 0, 60, 2, 5, 0, 0, 1, 40, -2, -3, 0, 0, 0, 0})},
-		ExpSolved:  &Tableau{mat.NewDense(4, 6, []float64{0, 0, 1, -0.4, 0.2, 2, 1, 0, 0, 0.25, -0.25, 5, 0, 1, 0, -0.1, 0.3, 6, 0, 0, 0, 0.2, 0.4, 28})},
-		ExpSoln:    []float64{5.0, 6.0},
-		ExpObjVal:  28.0,
+		Objective: []float64{-2.0, -3.0},
+		ExpTableau: &Tableau{mat.NewDense(4, 6, []float64{
+			2, 1, 1, 0, 0, 18,
+			6, 5, 0, 1, 0, 60,
+			2, 5, 0, 0, 1, 40,
+			-2, -3, 0, 0, 0, 0})},
+		ExpSolved: &Tableau{mat.NewDense(4, 6, []float64{
+			0, 0, 1, -0.4, 0.2, 2,
+			1, 0, 0, 0.25, -0.25, 5,
+			0, 1, 0, -0.1, 0.3, 6,
+			0, 0, 0, 0.2, 0.4, 28})},
+		ExpSoln:   []float64{5.0, 6.0},
+		ExpObjVal: 28.0,
 	},
 	"unequal constraints": {
 		Constraints: []Constraint{
@@ -47,6 +57,29 @@ var cases = map[string]TestProblem{
 				RightHandSide: 18.0,
 			}},
 		ExpTableauErr: errors.New("coefficient vectors must be of equal length"),
+	},
+	"unbounded": {
+		Constraints: []Constraint{
+			Constraint{
+				Coefficients:  []float64{4, -2, 2},
+				RightHandSide: 4,
+			},
+			Constraint{
+				Coefficients:  []float64{2, -1, 1},
+				RightHandSide: 1,
+			},
+		},
+		Objective: []float64{-3, -2, 5},
+		ExpTableau: &Tableau{mat.NewDense(3, 6, []float64{
+			4, -2, 2, 1, 0, 4,
+			2, -1, 1, 0, 1, 1,
+			-3, -2, 5, 0, 0, 0})},
+		ExpSolved: &Tableau{mat.NewDense(3, 6, []float64{
+			0, 0, 0, 1, -2, 2,
+			1, -0.5, 0.5, 0, 0.5, 0.5,
+			0, -3.5, 6.5, 0, 1.5, 1.5})},
+		ExpSolveErr:    ERR_UNBOUNDED,
+		ExpReadSolnErr: ERR_UNBOUNDED,
 	}}
 
 func roundFloat(x float64) float64 {
@@ -62,7 +95,9 @@ func TestNewTableau(t *testing.T) {
 				return
 			}
 			if !reflect.DeepEqual(tableau, tc.ExpTableau) {
-				t.Errorf("NewTableau result = %v; want %v", tableau, tc.ExpTableau)
+				t.Errorf("NewTableau result = \n%v;\nwant\n%v",
+					mat.Formatted(tableau, mat.Squeeze()),
+					mat.Formatted(tc.ExpTableau, mat.Squeeze()))
 			}
 		})
 	}
@@ -70,12 +105,16 @@ func TestNewTableau(t *testing.T) {
 
 func TestSolve(t *testing.T) {
 	for name, tc := range cases {
+		if tc.ExpTableau == nil {
+			continue
+		}
 		t.Run(name, func(t *testing.T) {
 			sut := tc.ExpTableau
-			if sut == nil {
-				return
+			err := sut.Solve()
+			if !reflect.DeepEqual(err, tc.ExpSolveErr) {
+				t.Errorf("Solve() error = %v; want %v", err, tc.ExpSolveErr)
 			}
-			sut.Solve()
+
 			rs, cs := sut.Dims()
 			ers, ecs := tc.ExpSolved.Dims()
 			if rs != ers || cs != ecs {
@@ -88,7 +127,10 @@ func TestSolve(t *testing.T) {
 					entry := roundFloat(sut.At(i, j))
 					expEntry := tc.ExpSolved.At(i, j)
 					if entry != expEntry {
-						t.Errorf("Solved tableau entry %d,%d = %v; want %v", i, j, entry, expEntry)
+						t.Errorf("Solved tableau = \n%v;\nwant\n%v",
+							mat.Formatted(sut, mat.Squeeze()),
+							mat.Formatted(tc.ExpSolved, mat.Squeeze()))
+						return
 					}
 				}
 			}
@@ -98,12 +140,21 @@ func TestSolve(t *testing.T) {
 
 func TestReadSoln(t *testing.T) {
 	for name, tc := range cases {
+		if tc.ExpSolved == nil {
+			continue
+		}
 		t.Run(name, func(t *testing.T) {
-			sut := tc.ExpSolved
-			if sut == nil {
-				return
+			sut1 := tc.ExpTableau
+			_, _, err := sut1.ReadSoln()
+			if !reflect.DeepEqual(err, ERR_UNSOLVED) {
+				t.Errorf("ReadSoln() for unsolved tableau = %v; want %v", err, ERR_UNSOLVED)
 			}
-			soln, val := sut.ReadSoln()
+
+			sut2 := tc.ExpSolved
+			soln, val, err := sut2.ReadSoln()
+			if !reflect.DeepEqual(err, tc.ExpReadSolnErr) {
+				t.Errorf("ReadSoln() for unsolved tableau = %v; want %v", err, tc.ExpReadSolnErr)
+			}
 			if !reflect.DeepEqual(soln, tc.ExpSoln) {
 				t.Errorf("Solution read = %v; want %v", soln, tc.ExpSoln)
 			}
